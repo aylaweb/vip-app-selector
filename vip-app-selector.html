@@ -1,0 +1,209 @@
+<!--
+Copyright (c) 2016 The Ayla Project Authors.
+This code may only be used under the MIT style license found at http://aylaweb.github.io/LICENSE.txt
+The complete set of authors may be found at http://aylaweb.github.io/AUTHORS.txt
+The complete set of contributors may be found at http://aylaweb.github.io/CONTRIBUTORS.txt
+-->
+
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../libs-html/rxjs.html">
+<link rel="import" href="../iron-selector/iron-selectable.html">
+<link rel="import" href="../vip-init/vip-init-behavior.html">
+
+<dom-module id="vip-app-selector">
+    <template>
+        <style>
+            /* Web Component Flex container */
+            :host{
+                overflow: hidden;
+                position: relative;
+                padding: 20px;
+                flex: 1 1 0px;
+                @apply(--layout-vertical);
+                @apply(--layout-flex);
+            }
+            #selector{
+                display: flex;
+                @apply(--layout-flex);
+                position: relative;
+            }
+            .iron-selected{
+                display: flex;
+            }
+            :not(.iron-selected){
+                display: none;
+            }
+        </style>
+        <content></content>
+    </template>
+    <script>
+        Polymer({
+            is: 'vip-app-selector',
+            properties: {
+                appElems: {
+                    type: Array,
+                    value: function () {
+                        return [];
+                    },
+                    observer: '_appElemsInitChanged'
+                },
+                theme: {
+                    type: String,
+                    observer: '_themeChanged'
+                },
+                observableProps: {
+                    type: Array,
+                    observer: '_observablePropsChanged'
+                }
+            },
+            observers: ['_appElemsChanged(appElems.splices)'],
+            listeners: {
+                'iron-select': "_ironSelectHandler",
+                'iron-deselect': "_ironDeselectHandler",
+                'iron-activate': "_ironActivateHandler",
+                'iron-items-changed': "_ironItemsChangedHandler"
+            },
+            behaviors: [Ayla.VipInitBehavior, Polymer.IronSelectableBehavior,
+                Ayla.VipSeekTimeBehavior, Ayla.VipOnOffBehavior],
+            created: function () {
+                console.log(this.id + " -> vip-app-selector -> Event created");
+                this.etype = 'vip-app-selector';
+            },
+            _forwardEventHandler: function (e) {
+                var property = e.type.slice(0, -8);
+                if (!(Object.getOwnPropertyDescriptor(this, property))) {
+                    Object.defineProperty(this, property,
+                            {get: function () {
+                                    return this.selectedItem.__data__[property];
+                                }});
+                }
+                if (e.target === this.selectedItem) {
+                    this.fire(e.type, e.detail);
+                }
+            },
+            _createElem: function (elemConfig)
+            {
+                var proto = _.find(Polymer.telemetry.registrations, function (proto) {
+                    return (proto.is === elemConfig.etype);
+                }, this);
+                if (proto) {
+                    // Order here is important as appId needs to be set before container
+                    elemConfig.appId = this.id;
+                    var elem = Polymer.Base.create(elemConfig.etype, elemConfig);
+                    elem.classList.add('vip-app-selector');
+                    Polymer.dom(this).appendChild(elem);
+                    //  this.fire('elemattached' + this.id, {id: this.id}, Polymer.dom(document));
+                    this._updateItems();
+                    this.select(this.selected);
+                    for (var prop in elem._propertyEffects)
+                    {
+                        this.listen(elem, prop + '-changed', '_forwardEventHandler');
+                    }
+                    var methods = Object.getOwnPropertyNames(elem.__proto__).filter(function (property) {
+                        return (typeof elem[property] === 'function' && property.charAt(0) !== '_');
+                    });
+                    methods.forEach(function (method) {
+                        if (!this[method]) {
+                            this[method] = function(...theArgs) {
+                                var execNode = this.selectedItem;
+                                execNode[method].apply(execNode, theArgs);
+                            }
+                        }
+                    }, this);
+                }
+                else {
+                    this.importHref(elemConfig.def, this._onloadProto.bind(this, elemConfig), this._onerrorProto.bind(this, elemConfig));
+                }
+
+
+            },
+            _onloadProto: function (elemConfig) {
+                var proto = _.find(Polymer.telemetry.registrations, function (proto) {
+                    return (proto.is === elemConfig.etype);
+                }, this);
+                if (elemConfig.etype !== this.localName)
+                {
+                    // So that we are not setting the behaviors on the Polymer.Base object and only applies to this prototype
+                    if (proto.behaviors.length === 0)
+                        proto.behaviors = [];
+                    // Add Behavior to the prototype
+                    if (_.findIndex(proto.behaviors, Ayla.VipInitBehavior) === -1) {
+                        proto.behaviors.push(Ayla.VipInitBehavior);
+                        proto._mixinBehavior(Ayla.VipInitBehavior);
+                        proto._prepBehavior(Ayla.VipInitBehavior);
+                    }
+                    //    Polymer.Bind.createBindings(proto);
+                    this._createElem(elemConfig);
+                }
+            },
+            _appElemsInitChanged: function (val, old) {
+                if (val) {
+                    val.forEach(function (elemConfig) {
+                        this._createElem(elemConfig);
+                    }, this);
+                }
+            },
+            ready: function () {
+                console.log(this.id + " -> vip-app-selector -> Event ready");
+            },
+            attached: function () {
+                console.log(this.id + " -> vip-app-selector -> Event attached");
+            },
+            _themeChanged: function (val, old) {
+                this.importHref(val, this._onloadTheme, this._onerrorTheme)
+            },
+            _onloadTheme: function (e) {
+                Polymer.updateStyles();
+            },
+            _ironSelectHandler: function (e) {
+                var item = e.detail.item;
+                //   item.style.display = "flex";
+                for (var property in item._propertyEffects) {
+                    if (property.charAt(0) !== '_') {
+                        this.fire(property + '-changed', {value: item[property]});
+                    }
+                }
+            },
+            _ironDeselectHandler: function (e) {
+                console.log(e);
+            },
+            _ironItemsChangedHandler: function (e) {
+                var items = e.detail.addedNodes;
+                items.forEach(function (item) {
+                    for (var property in item._propertyEffects) {
+                        if (property.charAt(0) !== '_') {
+                            this.fire(property + '-changed', {value: item[property]});
+                        }
+                    }
+
+                }.bind(this));
+            },
+            _appElemsChanged: function (changeRecord) {
+                if (changeRecord) {
+                    changeRecord.indexSplices.forEach(function (s) {
+                        var newElems = s.object.slice(s.index, s.index + s.addedCount);
+                        newElems.forEach(function (elemConfig) {
+                            elemConfig.appId = this.id;
+                            this._createElem(elemConfig);
+                        }, this);
+                    }, this);
+                }
+            },
+            _onerrorProto: function (elemConfig)
+            {
+                console.log('Error theme loading operation');
+            },
+            _observablePropsChanged: function (val, old) {
+                if (val) {
+                    val.forEach(function (prop) {
+                        this["observable_" + prop] = Rx.Observable.fromEvent(this, Polymer.CaseMap.camelToDashCase(prop) + '-changed');
+                    }, this);
+                }
+            },
+            detached: function () {
+                console.log(this.id + " -> vip-app -> Event detached");
+            }
+
+        });
+    </script>
+</dom-module>
